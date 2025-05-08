@@ -513,10 +513,12 @@
 		
 		// keep fixed bottom/right edge for N*/W* handles
 		if (resizeDirection.includes('w')) {
-			w = Math.max(1, originalGridRight - x);
+			const right = x + w;
+			w = Math.max(1, right - x);
 		}
 		if (resizeDirection.includes('n')) {
-			h = Math.max(1, originalGridBottom - y);
+			const bottom = y + h;
+			h = Math.max(1, bottom - y);
 		}
 		
 		// honour min / max constraints in grid units
