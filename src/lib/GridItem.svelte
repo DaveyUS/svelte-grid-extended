@@ -356,6 +356,11 @@
 	// RESIZE ITEM LOGIC
 
 	let initialSize = { width: 0, height: 0 };
+	let resizeDirection = 'se'; // Default resize direction (southeast)
+
+	// grid-coords of the edge that must stay fixed
+	let originalGridRight = 0;
+	let originalGridBottom = 0;
 
 	let minSize: ItemSize | undefined;
 
@@ -380,8 +385,21 @@
 	function resizeStart(event: PointerEvent) {
 		if (event.button !== 0) return;
 		event.stopPropagation();
+		
+		// Get the resize direction from the event if available
+		// Using any to bypass TypeScript's type checking for custom properties
+		const customEvent = event as any;
+		if (customEvent.direction) {
+			resizeDirection = customEvent.direction;
+		}
+		
+		// remember fixed edges
+		originalGridRight = item.x + item.w;
+		originalGridBottom = item.y + item.h;
+		
 		initInteraction(event);
 		initialSize = { width, height };
+		initialPosition = { left, top };
 		window.addEventListener('pointermove', resize);
 		window.addEventListener('pointerup', resizeEnd);
 	}
@@ -391,54 +409,146 @@
 			throw new Error('Grid is not mounted yet');
 		}
 
-		width = event.pageX + initialSize.width - initialPointerPosition.left;
-		height = event.pageY + initialSize.height - initialPointerPosition.top;
-
+		let newWidth, newHeight, newLeft, newTop;
+		const deltaX = event.pageX - initialPointerPosition.left;
+		const deltaY = event.pageY - initialPointerPosition.top;
+		
+		// Handle different resize directions
+		switch (resizeDirection) {
+			case 'se': // southeast (bottom-right)
+				newWidth = initialSize.width + deltaX;
+				newHeight = initialSize.height + deltaY;
+				newLeft = initialPosition.left;
+				newTop = initialPosition.top;
+				break;
+			case 'sw': // southwest (bottom-left)
+				newWidth = initialSize.width - deltaX;
+				newHeight = initialSize.height + deltaY;
+				newLeft = initialPosition.left + deltaX;
+				newTop = initialPosition.top;
+				break;
+			case 'ne': // northeast (top-right)
+				newWidth = initialSize.width + deltaX;
+				newHeight = initialSize.height - deltaY;
+				newLeft = initialPosition.left;
+				newTop = initialPosition.top + deltaY;
+				break;
+			case 'nw': // northwest (top-left)
+				newWidth = initialSize.width - deltaX;
+				newHeight = initialSize.height - deltaY;
+				newLeft = initialPosition.left + deltaX;
+				newTop = initialPosition.top + deltaY;
+				break;
+			default:
+				newWidth = initialSize.width + deltaX;
+				newHeight = initialSize.height + deltaY;
+				newLeft = initialPosition.left;
+				newTop = initialPosition.top;
+		}
+		
+		// Apply minimum size constraints
+		if (minSize) {
+			if (newWidth < minSize.width) {
+				if (['sw', 'nw'].includes(resizeDirection)) {
+					newLeft = initialPosition.left + initialSize.width - minSize.width;
+				}
+				newWidth = minSize.width;
+			}
+			if (newHeight < minSize.height) {
+				if (['ne', 'nw'].includes(resizeDirection)) {
+					newTop = initialPosition.top + initialSize.height - minSize.height;
+				}
+				newHeight = minSize.height;
+			}
+		}
+		
+		// Apply maximum size constraints
+		if (maxSize) {
+			if (newWidth > maxSize.width) {
+				if (['sw', 'nw'].includes(resizeDirection)) {
+					newLeft = initialPosition.left + initialSize.width - maxSize.width;
+				}
+				newWidth = maxSize.width;
+			}
+			if (newHeight > maxSize.height) {
+				if (['ne', 'nw'].includes(resizeDirection)) {
+					newTop = initialPosition.top + initialSize.height - maxSize.height;
+				}
+				newHeight = maxSize.height;
+			}
+		}
+		
+		// Apply bounds constraints
 		if ($gridParams.bounds && $gridParams.boundsTo) {
 			const parentRect = $gridParams.boundsTo.getBoundingClientRect();
-			if (width + left > parentRect.width) {
-				width = parentRect.width - left;
+			if (newLeft < parentRect.left) {
+				newWidth = initialPosition.left + initialSize.width - parentRect.left;
+				newLeft = parentRect.left;
 			}
-			if (height + top > parentRect.height) {
-				height = parentRect.height - top;
+			if (newTop < parentRect.top) {
+				newHeight = initialPosition.top + initialSize.height - parentRect.top;
+				newTop = parentRect.top;
+			}
+			if (newLeft + newWidth > parentRect.right) {
+				newWidth = parentRect.right - newLeft;
+			}
+			if (newTop + newHeight > parentRect.bottom) {
+				newHeight = parentRect.bottom - newTop;
 			}
 		}
-
-		if (minSize) {
-			width = Math.max(width, minSize.width);
-			height = Math.max(height, minSize.height);
-		}
-		if (maxSize) {
-			width = Math.min(width, maxSize.width);
-			height = Math.min(height, maxSize.height);
-		}
+		
+		// Update position and size
+		left = newLeft;
+		top = newTop;
+		width = newWidth;
+		height = newHeight;
 
 		if ($gridParams.collision === 'none') {
-			scroll;
+			scroll();
 		}
 
-		// TODO: throttle this, hasColisions is expensive
-		{
-			const { w, h } = snapOnResize(width, height, previewItem, $gridParams as SnapGridParams);
-			if ($gridParams.collision !== 'none') {
-				resizePreviewWithCollisions(w, h);
-			} else {
-				if (!hasCollisions({ ...previewItem, w, h }, Object.values($gridParams.items))) {
-					previewItem = { ...previewItem, w, h };
-				}
+		// Calculate grid coordinates
+		const { x, y } = snapOnMove(left, top, previewItem, $gridParams as SnapGridParams);
+		let { w, h } = snapOnResize(width, height, previewItem, $gridParams as SnapGridParams);
+		
+		// keep fixed bottom/right edge for N*/W* handles
+		if (resizeDirection.includes('w')) {
+			w = Math.max(1, originalGridRight - x);
+		}
+		if (resizeDirection.includes('n')) {
+			h = Math.max(1, originalGridBottom - y);
+		}
+		
+		// honour min / max constraints in grid units
+		w = Math.max(w, min.w);
+		h = Math.max(h, min.h);
+		if (max) {
+			w = Math.min(w, max.w);
+			h = Math.min(h, max.h);
+		}
+		
+		// Update preview item
+		if ($gridParams.collision !== 'none') {
+			resizePreviewWithCollisions(w, h);
+		} else {
+			if (!hasCollisions({ ...previewItem, x, y, w, h }, Object.values($gridParams.items))) {
+				previewItem = { ...previewItem, x, y, w, h };
 			}
 		}
 	}
 
 	function resizePreviewWithCollisionsWithPush(w: number, h: number) {
-		handleCollisionsForPreviewItemWithPush({ w, h });
+		const { x, y } = snapOnMove(left, top, previewItem, $gridParams as SnapGridParams);
+		handleCollisionsForPreviewItemWithPush({ x, y, w, h });
 	}
 
 	function resizePreviewWithCollisionsWithCompress(w: number, h: number) {
-		const sizeChanged = w != previewItem.w || h != previewItem.h;
-		if (sizeChanged) {
+		const { x, y } = snapOnMove(left, top, previewItem, $gridParams as SnapGridParams);
+		const positionOrSizeChanged = w != previewItem.w || h != previewItem.h || x != previewItem.x || y != previewItem.y;
+		
+		if (positionOrSizeChanged) {
 			const hGap = h - previewItem.h;
-			previewItem = { ...previewItem, w, h };
+			previewItem = { ...previewItem, x, y, w, h };
 			applyPreview();
 			const collItems = getCollisions(
 				{ ...previewItem, w, h: 9999 },
@@ -552,7 +662,9 @@
 		class={previewClass ?? ''}
 		class:item-preview-default={!previewClass}
 		style={`position: absolute; left:${preview.left}px; top:${preview.top}px;  
-		width: ${preview.width}px; height: ${preview.height}px; z-index: -10;`}
+		width: ${preview.width}px; height: ${preview.height}px; z-index: 20;
+		transition: left 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), 
+		width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);`}
 	/>
 {/if}
 
@@ -570,7 +682,10 @@
 	}
 	.item-preview-default {
 		background-color: rgb(192, 127, 127);
-		transition: all 0.2s;
+		transition: all 0.3s ease-out;
+		opacity: 0.6;
+		border-radius: 4px;
+		box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
 	}
 	.non-active-default {
 		transition:
