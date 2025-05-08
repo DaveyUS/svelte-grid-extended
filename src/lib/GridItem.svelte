@@ -507,18 +507,32 @@
 			scroll();
 		}
 
-		// Calculate grid coordinates
-		const { x, y } = snapOnMove(left, top, previewItem, $gridParams as SnapGridParams);
-		let { w, h } = snapOnResize(width, height, previewItem, $gridParams as SnapGridParams);
-		
-		// keep fixed bottom/right edge for N*/W* handles
+		/* -----------------------------------------------------------
+		   SNAP LOGIC  – order matters!
+		   1. snap size ➜ 2. snap position with new size ➜ 3. lock edges
+		----------------------------------------------------------- */
+
+		// 1️⃣  snap raw pixel size to grid units
+		let { w: snappedW, h: snappedH } = snapOnResize(
+			width,
+			height,
+			previewItem,
+			$gridParams as SnapGridParams
+		);
+
+		// 2️⃣  compute x / y using the UPDATED size
+		const tempItem = { ...previewItem, w: snappedW, h: snappedH };
+		const { x, y } = snapOnMove(left, top, tempItem, $gridParams as SnapGridParams);
+
+		// 3️⃣  keep right / bottom edges fixed when using W* / N* handles
+		let w = snappedW;
+		let h = snappedH;
+
 		if (resizeDirection.includes('w')) {
-			const right = x + w;
-			w = Math.max(1, right - x);
+			w = Math.max(1, originalGridRight - x);
 		}
 		if (resizeDirection.includes('n')) {
-			const bottom = y + h;
-			h = Math.max(1, bottom - y);
+			h = Math.max(1, originalGridBottom - y);
 		}
 		
 		// honour min / max constraints in grid units
