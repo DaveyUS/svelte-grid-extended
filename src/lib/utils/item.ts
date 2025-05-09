@@ -9,11 +9,11 @@ export function coordinate2size(coordinate: number, cellSize: number, gap: numbe
 }
 
 export function position2coordinate(position: number, cellSize: number, gap: number): number {
-	return Math.round(position / (cellSize + gap));
+	return Math.floor(position / (cellSize + gap));
 }
 
 export function size2coordinate(size: number, cellSize: number, gap: number): number {
-	return position2coordinate(size + gap * 2, cellSize, gap);
+	return Math.floor((size + gap) / (cellSize + gap));
 }
 
 export type SnapGridParams = Required<Pick<GridParams, 'itemSize' | 'gap' | 'maxCols' | 'maxRows'>>;
@@ -45,8 +45,8 @@ export function snapOnResize(
 	const { itemSize, gap } = gridParams;
 	const { x, y } = item;
 
-	let w = position2coordinate(width + gap * 2, itemSize.width, gap);
-	let h = position2coordinate(height + gap * 2, itemSize.height, gap);
+	let w = size2coordinate(width, itemSize.width, gap);
+	let h = size2coordinate(height, itemSize.height, gap);
 
 	w = clamp(w, 0, gridParams.maxCols - x);
 	h = clamp(h, 0, gridParams.maxRows - y);
