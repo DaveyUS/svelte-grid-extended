@@ -520,18 +520,29 @@
 			$gridParams as SnapGridParams
 		);
 
-		// 2️⃣  compute x / y using the UPDATED size
-		const tempItem = { ...previewItem, w: snappedW, h: snappedH };
-		const { x, y } = snapOnMove(left, top, tempItem, $gridParams as SnapGridParams);
+		// 2️⃣  compute x / y using the UPDATED size, but only for handles that change position
+		let x = previewItem.x;
+		let y = previewItem.y;
+		
+		// Only recalculate position if the handle actually moves the top-left corner
+		if (resizeDirection.includes('w') || resizeDirection.includes('n')) {
+			const tempItem = { ...previewItem, w: snappedW, h: snappedH };
+			const snappedPosition = snapOnMove(left, top, tempItem, $gridParams as SnapGridParams);
+			x = snappedPosition.x;
+			y = snappedPosition.y;
+		}
 
 		// 3️⃣  keep right / bottom edges fixed when using W* / N* handles
 		let w = snappedW;
 		let h = snappedH;
 
+		// Only lock edges when resizing from specific directions
 		if (resizeDirection.includes('w')) {
+			// When resizing from west (left), keep the right edge fixed
 			w = Math.max(1, originalGridRight - x);
 		}
 		if (resizeDirection.includes('n')) {
+			// When resizing from north (top), keep the bottom edge fixed
 			h = Math.max(1, originalGridBottom - y);
 		}
 		
